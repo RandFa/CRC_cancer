@@ -11,7 +11,11 @@ dependencies:
   - scikit-learn
   - matplotlib
   - seaborn
-  - conorm
   - umap-learn
   - scanpy
   - anndata
+  - pip
+  - pip:
+      - pydeseq2
+      - gseapy
+      - conorm
