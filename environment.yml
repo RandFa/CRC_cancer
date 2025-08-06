@@ -5,9 +5,13 @@ channels:
   - defaults
 dependencies:
   - python=3.12
-  - numpy
+  - numpy=2.2
   - pandas
   - scipy
   - scikit-learn
   - matplotlib
   - seaborn
+  - conorm
+  - umap-learn
+  - scanpy
+  - anndata
