@@ -28,7 +28,7 @@ cd epigene_test_CRC_cancer
 
 ```bash
 conda env create -f environment.yml
-conda activate crc_env
+conda activate epigene_crc_env
 ```
 
 ## Respratory structure:

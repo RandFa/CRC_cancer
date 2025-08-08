@@ -50,8 +50,8 @@ def encode_categorical_columns(metadata_df, extra_cats=['gender']):
         metadata_df[col + '_enc'] = enc.fit_transform(reshaped)
         encoders[col] = enc
 
-    encoded_cat_cols = [col + '_enc' for col in cat_cols]
-    all_impute_cols = num_cols + encoded_cat_cols + ['gender_enc']
+    encoded_cat_cols = [col + '_enc' for col in cat_cols+extra_cats]
+    all_impute_cols = num_cols + encoded_cat_cols 
     return metadata_df, num_cols, cat_cols, encoded_cat_cols, all_impute_cols, encoders
 
 
@@ -112,7 +112,7 @@ def optimize_k(masked_data, combined_data, true_targets, all_impute_cols, encode
             true_vals = true_targets.loc[mask_col, col]
             imputed_vals = imputed_targets.loc[mask_col, col]
 
-            if col in encoded_cat_cols or col == 'gender_enc':
+            if col in encoded_cat_cols:
                 acc = accuracy_score(true_vals.round().astype(int), imputed_vals.round().astype(int))
                 error = 1 - acc
             else:
@@ -160,10 +160,12 @@ def restore_metadata(cancer_df, final_targets, num_cols, cat_cols, encoded_cat_c
     """
     for col in num_cols:
         cancer_df[col] = final_targets[col]
-    for col in cat_cols + ['gender']:
+    additional = ['gender','biopsy_site', 'histological_subtype','histological_type', 'primary_site', 'first_line_treatment',
+       'second_line_treatment', 'has_further_steps']
+    for col in cat_cols + additional:
         col_enc = col + '_enc'
         cancer_df[col] = final_targets[col_enc]
-    cancer_df.drop(columns=encoded_cat_cols + ['gender_enc'], inplace=True)
+        cancer_df.drop(columns=[col_enc], inplace=True)
     return cancer_df
 
 

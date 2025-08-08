@@ -68,7 +68,7 @@ def plot_continuous_distributions(df, continuous_cols, save_dir="../results/meta
         plt.show()
 
 
-def plot_reductions(adata, save_dir="../results/dimensionality_reduction", color_by: Union[str, List[str]]):
+def plot_reductions(adata, color_by: Union[str, List[str]], save_dir="../results/dimensionality_reduction"):
     """
     Plot PCA, t-SNE, and UMAP projections of an AnnData object colored by one or more metadata variables.
 
@@ -86,8 +86,81 @@ def plot_reductions(adata, save_dir="../results/dimensionality_reduction", color
 
     for var in color_by:
         for method in ['pca', 'tsne', 'umap']:
-            filename = f"{save_dir}/{method}_{var}.png"
+            #save figure
             plot_func = getattr(sc.pl, method)
-            plot_func(adata, color=var, title=f"{method.upper()} - colored by {var}", show=True, save=False)
-            fig = plt.gcf()
-            fig.savefig(filename, bbox_inches='tight')
+            plot_func(
+                adata,
+                color=var,
+                title=f"{method.upper()} - colored by {var}",
+                show=False
+            )
+            filename = f"../results/dimensionality_reduction/{method}_{var}.png"
+            plt.savefig(filename, bbox_inches='tight')
+            plt.close()
+            # show figure
+            plot_func(
+                adata,
+                color=var,
+                title=f"{method.upper()} - colored by {var}",
+                show=True
+            )
+
+
+def plot_time_distribution_by_outcome(metadata_df: pd.DataFrame, 
+                                      time_col: str = 'os_time', 
+                                      status_col: str = 'os_status',
+                                      figsize: tuple = (10, 5),
+                                      palette_name: str = 'Set2') -> None:
+    """
+    Plot a Kernel Density Estimate (KDE) of time-to-event data grouped by outcome status.
+    
+    This function visualizes the distribution of survival/censoring times for different 
+    outcome groups using KDE plots and a rug plot for individual data points.
+
+    Parameters:
+    -----------
+    metadata_df : pd.DataFrame
+        DataFrame containing survival metadata (e.g., time and event status).
+        
+    time_col : str, default='os_time'
+        Column name representing time-to-event or follow-up time.
+        
+    status_col : str, default='os_status'
+        Column name representing outcome status (e.g., 'Dead', 'Alive', 'Censored').
+
+    figsize : tuple, default=(10, 5)
+        Size of the matplotlib figure.
+        
+    palette_name : str, default='Set2'
+        Seaborn color palette name for distinguishing outcome groups.
+
+    Returns:
+    --------
+    None
+        Displays a KDE plot with density estimates and a rug plot overlay.
+    """
+
+    plt.figure(figsize=figsize)
+
+    # Generate color palette
+    unique_statuses = metadata_df[status_col].unique()
+    palette = sns.color_palette(palette_name, len(unique_statuses))
+
+    # KDE plots for each outcome
+    for i, status in enumerate(unique_statuses):
+        subset = metadata_df[metadata_df[status_col] == status][time_col]
+        sns.kdeplot(subset, fill=True, alpha=0.5, linewidth=2, label=status, color=palette[i])
+
+    # Rug plot for individual time points
+    sns.rugplot(data=metadata_df, x=time_col, hue=status_col, palette=palette, height=0.03, alpha=0.7)
+
+    # Plot styling
+    plt.title('Time Distribution by Outcome', fontsize=18, weight='bold')
+    plt.xlabel('Time to Event or Censoring', fontsize=14)
+    plt.ylabel('Density', fontsize=14)
+    plt.legend(title='Outcome', title_fontsize=13, fontsize=11, loc='upper right')
+    plt.grid(axis='y', linestyle='--', alpha=0.5)
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.tight_layout()
+    plt.show()

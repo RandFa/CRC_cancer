@@ -1,4 +1,4 @@
-name: crc_env
+name: epigene_crc_env
 channels:
   - bioconda
   - conda-forge
@@ -13,9 +13,13 @@ dependencies:
   - seaborn
   - umap-learn
   - scanpy
+  - python-igraph 
+  - leidenalg
   - anndata
+  - pycox
   - pip
   - pip:
       - pydeseq2
       - gseapy
       - conorm
+      - scikit-survival
