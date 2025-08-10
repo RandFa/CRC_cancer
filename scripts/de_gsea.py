@@ -3,15 +3,12 @@ run_deseq_pipeline.py
 
 A modular pipeline for differential expression analysis using PyDESeq2 and GSEA using GSEApy.
 
-This script:
-1. Loads count, metadata, and scaled expression data
-2. Runs DESeq2 differential expression analysis
-3. Generates and saves:
-   - Ranked gene list
-   - Volcano plot
-   - MA plot
-   - Heatmap of top genes
-4. Performs pre-ranked GSEA and plots the top enriched pathway
+This script contains reusable functions that:
+- Run DESeq2 differential expression analysis
+- Generate and save ranked gene lists and common plots (volcano, MA, heatmap)
+- Perform preranked GSEA and plot the top enriched pathway
+
+All input/output paths and data are provided via function arguments for flexibility.
 """
 
 import os
@@ -22,228 +19,162 @@ import seaborn as sns
 from pydeseq2.dds import DeseqDataSet
 from pydeseq2.ds import DeseqStats
 import gseapy as gp
+import plotting_utils as mplt
 
 # -------------------------
-# Configuration
+# DESeq2 Analysis Functions
 # -------------------------
-DATA_DIR = "../data"
-RESULTS_DIR = "../results"
-GSEA_DIR = os.path.join(RESULTS_DIR, "gsea_results")
-
-# Create output directories if they don't exist
-os.makedirs(RESULTS_DIR, exist_ok=True)
-os.makedirs(GSEA_DIR, exist_ok=True)
-
-# -------------------------
-# Data Loading
-# -------------------------
-def load_data():
-    """
-    Load input data for DE analysis.
-
-    Returns:
-        count_df (DataFrame): Raw gene counts
-        metadata_df (DataFrame): Sample metadata with design variables
-        scaled_log_tmm (DataFrame): Log-scaled normalized expression matrix for plotting
-    """
-    count_df = pd.read_csv(f'{DATA_DIR}/filtered_raw_expression.csv', index_col=0)
-    metadata_df = pd.read_csv(f'{DATA_DIR}/metadata.csv', index_col=0)
-    scaled_log_tmm = pd.read_csv(f'{DATA_DIR}/scaled_log_tmm.csv', index_col=0)
-    return count_df, metadata_df, scaled_log_tmm
-
-# -------------------------
-# DESeq2 Analysis
-# -------------------------
-def run_deseq2(count_df, metadata_df):
+def run_deseq2(count_df: pd.DataFrame, metadata_df: pd.DataFrame, design_factors: list) -> DeseqDataSet:
     """
     Run DESeq2 pipeline using PyDESeq2.
 
     Args:
-        count_df (DataFrame): Raw counts (genes x samples)
-        metadata_df (DataFrame): Metadata with design factors
+        count_df (pd.DataFrame): Raw counts matrix (genes x samples).
+        metadata_df (pd.DataFrame): Metadata dataframe with design factors.
+        design_factors (list): List of column names in metadata to use as design factors.
 
     Returns:
-        dds (DeseqDataSet): Fitted DESeq2 object
+        DeseqDataSet: Fitted DESeq2 dataset object.
     """
     dds = DeseqDataSet(
-        counts=count_df.T,
+        counts=count_df,
         metadata=metadata_df,
-        design_factors=["sample_type", "age", "gender"]
+        design_factors=design_factors
     )
     dds.deseq2()
     return dds
 
-def run_stats(dds):
+def run_deseq_stats(dds: DeseqDataSet, contrast: tuple) -> pd.DataFrame:
     """
-    Run DE statistics for contrast (Tumor vs Healthy).
+    Compute DE statistics for a specific contrast.
 
     Args:
-        dds (DeseqDataSet): Fitted DESeq2 object
+        dds (DeseqDataSet): Fitted DESeq2 dataset.
+        contrast (tuple): Contrast tuple in form (factor, condition1, condition2).
 
     Returns:
-        results (DataFrame): DE results with log2FC, padj, etc.
+        pd.DataFrame: Differential expression results with log2FC, p-values, etc.
     """
-    ds = DeseqStats(dds, contrast=("sample_type", "Healthy sample", "Primary cancer"))
+    ds = DeseqStats(dds, contrast=contrast)
     ds.summary()
     results = ds.results_df.dropna(subset=["log2FoldChange", "pvalue", "padj"])
     return results
 
 # -------------------------
-# Ranking Genes
+# Ranked Genes Handling
 # -------------------------
-def save_ranked_genes(results):
+def save_ranked_genes(results: pd.DataFrame, output_path: str) -> pd.Series:
     """
-    Save ranked gene list by statistical significance (Wald statistic).
+    Save genes ranked by DESeq2 Wald statistic for GSEA.
 
     Args:
-        results (DataFrame): DE results
+        results (pd.DataFrame): DE results.
+        output_path (str): Path to save ranked gene list (csv).
 
     Returns:
-        ranked_series (Series): Ranked gene statistics
+        pd.Series: Ranked gene statistics (statistic as values, gene names as index).
     """
     ranked = results.sort_values(by="stat", ascending=False)
     ranked_series = pd.Series(ranked["stat"].values, index=ranked.index)
-    ranked_series.to_csv(f"{RESULTS_DIR}/ranked_genes.csv", header=False)
+    ranked_series.to_csv(output_path, header=False)
     return ranked_series
 
-# -------------------------
-# Plotting Functions
-# -------------------------
-def plot_volcano(results):
-    """
-    Create and save a volcano plot of DE results.
-    """
-    results['neg_log10_padj'] = -np.log10(results['padj'])
-    plt.figure(figsize=(10, 6))
-    sns.scatterplot(
-        data=results,
-        x='log2FoldChange',
-        y='neg_log10_padj',
-        hue=results['padj'] < 0.05,
-        palette={True: 'red', False: 'grey'},
-        alpha=0.6
-    )
-    plt.axvline(x=0, color='black', linestyle='--')
-    plt.title('Volcano Plot of Differential Expression')
-    plt.xlabel('Log2 Fold Change')
-    plt.ylabel('-Log10 Adjusted p-value')
-    plt.legend(title='Significant (padj < 0.05)')
-    plt.tight_layout()
-    plt.savefig(f"{RESULTS_DIR}/volcano_plot.png", dpi=300)
-    plt.close()
 
-def plot_ma(results):
-    """
-    Create and save an MA plot of DE results.
-    """
-    plt.figure(figsize=(10, 6))
-    sns.scatterplot(
-        data=results,
-        x='baseMean',
-        y='log2FoldChange',
-        hue=results['padj'] < 0.05,
-        palette={True: 'red', False: 'grey'},
-        alpha=0.6
-    )
-    plt.xscale('log')
-    plt.axhline(y=0, color='black', linestyle='--')
-    plt.title('MA Plot of Differential Expression')
-    plt.xlabel('Mean of Normalized Counts (log scale)')
-    plt.ylabel('Log2 Fold Change')
-    plt.legend(title='Significant (padj < 0.05)')
-    plt.tight_layout()
-    plt.savefig(f"{RESULTS_DIR}/ma_plot.png", dpi=300)
-    plt.close()
 
-def plot_heatmap(results, scaled_log_tmm, metadata_df):
+# -------------------------
+# GSEA Functions
+# -------------------------
+def run_gsea_prerank(ranked_genes: pd.Series, outdir: str, gene_sets: str = 'GO_Biological_Process_2021',
+                     permutation_num: int = 100, seed: int = 42, plot_top_term: bool = True) -> pd.DataFrame:
     """
-    Generate a heatmap of the top 20 most significant DE genes.
+    Run preranked GSEA using gseapy.
 
     Args:
-        results (DataFrame): DE results
-        scaled_log_tmm (DataFrame): Scaled log expression matrix
-        metadata_df (DataFrame): Sample metadata
-    """
-    top_genes = results.sort_values("padj").head(20).index
-    heatmap_data = scaled_log_tmm[top_genes]
-    heatmap_data.index = metadata_df.loc[heatmap_data.index, 'sample_type']
-    sns.clustermap(heatmap_data, cmap="vlag", figsize=(10, 8), col_cluster=False)
-    plt.savefig(f"{RESULTS_DIR}/heatmap_top20_genes.png", dpi=300)
-    plt.close()
-
-# -------------------------
-# GSEA with GSEApy
-# -------------------------
-def run_gsea(ranked_genes):
-    """
-    Run GSEA on a ranked gene list and save plots/results.
-
-    Args:
-        ranked_genes (Series): Ranked gene statistics
+        ranked_genes (pd.Series): Ranked gene list (statistic values with gene names as index).
+        outdir (str): Directory to save GSEA output.
+        gene_sets (str): Gene set database to use (e.g., 'Hallmark', 'KEGG_2016').
+        permutation_num (int): Number of permutations for significance testing.
+        seed (int): Random seed for reproducibility.
+        plot_top_term (bool): Whether to plot the top enriched term.
 
     Returns:
-        res2d (DataFrame): GSEA summary table
+        pd.DataFrame: GSEA results summary table.
     """
+    os.makedirs(outdir, exist_ok=True)
+
     pre_res = gp.prerank(
         rnk=ranked_genes,
-        gene_sets='GO_Biological_Process_2021',
-        permutation_num=100,
-        outdir=GSEA_DIR,
-        no_plot=False,
-        seed=42
+        gene_sets=gene_sets,
+        permutation_num=permutation_num,
+        outdir=outdir,
+        no_plot=not plot_top_term,
+        seed=seed
     )
 
-    # Plot the top enriched term
-    top_term = pre_res.res2d['Term'].iloc[0]
-    gsea_result = pre_res.results[top_term]
+    if plot_top_term:
+        top_term = pre_res.res2d['Term'][0]
+        gsea_result = pre_res.results[top_term]
 
-    gp.plot.gseaplot(
-        hits=gsea_result['hits'],
-        RES=gsea_result['RES'],
-        term=top_term,
-        rank_metric=pre_res.ranking,
-        nes=gsea_result['nes'],
-        pval=gsea_result['pval'],
-        fdr=gsea_result['fdr']
-    )
+        gp.plot.gseaplot(
+            hits=gsea_result['hits'],
+            RES=gsea_result['RES'],
+            term=top_term,
+            rank_metric=pre_res.ranking,
+            nes=gsea_result['nes'],
+            pval=gsea_result['pval'],
+            fdr=gsea_result['fdr']
+        )
+        plt.savefig(os.path.join(outdir, "top_term_enrichment.png"), dpi=300)
+        plt.close()
 
-    plt.savefig(f"{GSEA_DIR}/top_term_enrichment.png", dpi=300)
-    plt.close()
-
-    # Save the summary table
-    pre_res.res2d.to_csv(f"{GSEA_DIR}/gsea_summary.csv")
+    pre_res.res2d.to_csv(os.path.join(outdir, "gsea_summary.csv"))
     return pre_res.res2d
 
 # -------------------------
-# Main Pipeline Function
+# Example Pipeline Runner
 # -------------------------
-def main():
+def run_pipeline(count_df: pd.DataFrame, metadata_df: pd.DataFrame, scaled_expression: pd.DataFrame,
+                 design_factors: list, contrast: tuple, results_dir: str, gene_sets: str = 'GO_Biological_Process_2021'):
     """
-    Main function to run the DE + GSEA pipeline.
-    """
-    print("🔹 Loading data...")
-    count_df, metadata_df, scaled_log_tmm = load_data()
+    Run the full DESeq2 + GSEA pipeline given input data.
 
-    print("🔹 Running DESeq2 analysis...")
-    dds = run_deseq2(count_df, metadata_df)
-    results = run_stats(dds)
+    Args:
+        count_df (pd.DataFrame): Raw counts (genes x samples).
+        metadata_df (pd.DataFrame): Sample metadata.
+        scaled_expression (pd.DataFrame): Normalized & scaled expression for plotting.
+        design_factors (list): Design factors for DESeq2.
+        contrast (tuple): Contrast for DESeq2 stats (factor, cond1, cond2).
+        results_dir (str): Directory to save all outputs.
+        gene_sets (str): Gene set database to use (e.g., 'Hallmark', 'KEGG_2016').
+
+    Returns:
+        None
+    """
+    os.makedirs(results_dir, exist_ok=True)
+    gsea_dir = os.path.join(results_dir, "gsea_results")
+    os.makedirs(gsea_dir, exist_ok=True)
+
+    print("🔹 Running DESeq2...")
+    dds = run_deseq2(count_df, metadata_df, design_factors)
+    results = run_deseq_stats(dds, contrast)
 
     print("🔹 Saving ranked genes...")
-    ranked_genes = save_ranked_genes(results)
+    ranked_path = os.path.join(results_dir, "ranked_genes.csv")
+    ranked_genes = save_ranked_genes(results, ranked_path)
 
-    print("🔹 Generating plots...")
-    plot_volcano(results)
-    plot_ma(results)
-    plot_heatmap(results, scaled_log_tmm, metadata_df)
+    print("🔹 Plotting volcano plot...")
+    mplt.plot_volcano(results, os.path.join(results_dir, "volcano_plot.png"))
 
-    print("🔹 Running GSEA...")
-    gsea_results = run_gsea(ranked_genes)
+    print("🔹 Plotting MA plot...")
+    mplt.plot_ma(results, os.path.join(results_dir, "ma_plot.png"))
 
-    print("✅ Pipeline completed successfully!")
-    print("🔬 Top enriched pathways:\n", gsea_results.head())
+    print("🔹 Plotting heatmap of top genes...")
+    mplt.plot_heatmap(results, scaled_expression, metadata_df, os.path.join(results_dir, "heatmap_top20_genes.png"))
 
-# # -------------------------
-# # Run Script
-# # -------------------------
-if __name__ == "__main__":
-    main()
+    print("🔹 Running GSEA prerank...")
+    gsea_results = run_gsea_prerank(ranked_genes, gsea_dir, gene_sets, permutation_num=100)
+
+    print("✅ Pipeline complete.")
+    print("Top enriched pathways:")
+    print(gsea_results.head())
+

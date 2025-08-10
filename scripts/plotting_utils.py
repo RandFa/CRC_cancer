@@ -164,3 +164,92 @@ def plot_time_distribution_by_outcome(metadata_df: pd.DataFrame,
     plt.yticks(fontsize=12)
     plt.tight_layout()
     plt.show()
+
+def plot_volcano(results: pd.DataFrame, output_path: str):
+    """
+    Create and save a volcano plot of DE results.
+
+    Args:
+        results (pd.DataFrame): DE results.
+        output_path (str): File path to save plot image.
+    """
+    results = results.copy()
+    results['neg_log10_padj'] = -np.log10(results['padj'])
+    plt.figure(figsize=(10, 6))
+    sns.scatterplot(
+        data=results,
+        x='log2FoldChange',
+        y='neg_log10_padj',
+        hue=results['padj'] < 0.05,
+        palette={True: 'red', False: 'grey'},
+        alpha=0.6
+    )
+    plt.axvline(x=0, color='black', linestyle='--')
+    plt.title('Volcano Plot of Differential Expression')
+    plt.xlabel('Log2 Fold Change')
+    plt.ylabel('-Log10 Adjusted p-value')
+    plt.legend(title='Significant (padj < 0.05)')
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300)
+    plt.close()
+
+def plot_ma(results: pd.DataFrame, output_path: str):
+    """
+    Create and save an MA plot of DE results.
+
+    Args:
+        results (pd.DataFrame): DE results.
+        output_path (str): File path to save plot image.
+    """
+    plt.figure(figsize=(10, 6))
+    sns.scatterplot(
+        data=results,
+        x='baseMean',
+        y='log2FoldChange',
+        hue=results['padj'] < 0.05,
+        palette={True: 'red', False: 'grey'},
+        alpha=0.6
+    )
+    plt.xscale('log')
+    plt.axhline(y=0, color='black', linestyle='--')
+    plt.title('MA Plot of Differential Expression')
+    plt.xlabel('Mean of Normalized Counts (log scale)')
+    plt.ylabel('Log2 Fold Change')
+    plt.legend(title='Significant (padj < 0.05)')
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300)
+    plt.close()
+
+def plot_heatmap(results: pd.DataFrame, scaled_expression: pd.DataFrame, metadata_df: pd.DataFrame,
+                 output_path: str, top_n: int = 20, cluster_cols: bool = False):
+    """
+    Generate and save a heatmap of top N DE genes.
+
+    Args:
+        results (pd.DataFrame): DE results.
+        scaled_expression (pd.DataFrame): Scaled expression matrix (samples x genes).
+        metadata_df (pd.DataFrame): Sample metadata (index matches samples in scaled_expression).
+        output_path (str): File path to save heatmap image.
+        top_n (int): Number of top genes to include.
+        cluster_cols (bool): Whether to cluster columns in heatmap.
+    """
+    top_genes = results.sort_values("padj").head(top_n).index
+    heatmap_data = scaled_expression[top_genes]
+
+    # Annotate samples by sample_type if available
+    if 'sample_type' in metadata_df.columns:
+        row_colors = metadata_df.loc[heatmap_data.index, 'sample_type'].map({
+            v: sns.color_palette("Set2")[i] for i, v in enumerate(metadata_df['sample_type'].unique())
+        })
+    else:
+        row_colors = None
+
+    sns.clustermap(
+        heatmap_data,
+        cmap="vlag",
+        figsize=(10, 8),
+        col_cluster=cluster_cols,
+        row_colors=row_colors
+    )
+    plt.savefig(output_path, dpi=300)
+    plt.close()
