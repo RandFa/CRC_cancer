@@ -1,189 +1,244 @@
-# %% Imports
+# cancer_survival_pipeline.py
+
 import os
-import pandas as pd
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.impute import IterativeImputer
+from sklearn.feature_selection import SelectKBest, f_classif
 from sklearn.inspection import permutation_importance
 
 from sksurv.ensemble import RandomSurvivalForest, GradientBoostingSurvivalAnalysis
-from sksurv.metrics import (
-    concordance_index_censored,
-    cumulative_dynamic_auc,
-    integrated_brier_score
-)
+from sksurv.metrics import concordance_index_censored, cumulative_dynamic_auc, integrated_brier_score
 
-# %% Constants and Output Paths
-RESULTS_DIR = "../results/cancer_survival"
-os.makedirs(RESULTS_DIR, exist_ok=True)
-
-# %% Data Loading
-def load_data(metadata_path, expression_path):
-    metadata_df = pd.read_csv(metadata_path, index_col=0).drop(['age'], axis=1)
-    expression_df = pd.read_csv(expression_path, index_col=0)
-    return metadata_df.merge(expression_df, left_index=True, right_index=True)
-
-# %% Target Preparation
-def prepare_survival_target(df):
-    y_structured = np.array(
-        list(zip(df['os_status'].astype(bool), df['os_time'])),
-        dtype=[('os_status', '?'), ('os_time', '<f8')]
-    )
-    X = df.drop(columns=['os_status', 'os_time'])
-    return X, y_structured
-
-# %% Train/Test Split
-def split_data(X, y, test_size=0.2, random_state=42):
-    return train_test_split(
-        X, y, test_size=test_size, random_state=random_state, stratify=y['os_status']
-    )
-
-# %% Custom Scorer for Survival Models
-def c_index_scorer(estimator, X, y):
-    surv_pred = estimator.predict(X)
-    return concordance_index_censored(y['os_status'], y['os_time'], surv_pred)[0]
-
-# %% Model Training with Hyperparameter Tuning
-def tune_model(model_class, param_dist, X_train, y_train, scoring_func, model_name):
-    search = RandomizedSearchCV(
-        model_class(random_state=42),
-        param_distributions=param_dist,
-        cv=5,
-        scoring=scoring_func,
-        random_state=42,
-    )
-    search.fit(X_train, y_train)
+# -----------------------------------------------------------
+# 1. Data Loading and Filtering
+# -----------------------------------------------------------
+def load_and_filter_data(metadata_path: str, expression_path: str, min_time: int = 180):
+    """
+    Load and filter metadata, expression, and GSEA results.
     
-    print(f"{model_name} - Best Parameters:", search.best_params_)
-    print(f"{model_name} - Best C-index on training data:", search.best_score_)
+    Args:
+        metadata_path (str): Path to metadata CSV.
+        expression_path (str): Path to expression CSV.
+        min_time (int): Minimum survival time threshold in days.
+        
+    Returns:
+        tuple: (metadata_df, expression_df)
+    """
+    metadata_df = pd.read_csv(metadata_path, index_col=0)
+    expression_df = pd.read_csv(expression_path, index_col=0)
+    metadata_df = metadata_df[metadata_df['os_time'] >= min_time]
+    expression_df = expression_df.loc[metadata_df.index]
 
-    # Save best parameters
-    param_df = pd.DataFrame([search.best_params_])
-    param_df["best_score"] = search.best_score_
-    param_df.to_csv(f"{RESULTS_DIR}/{model_name}_best_params.csv", index=False)
+    return metadata_df, expression_df
 
-    return search.best_estimator_
 
-# %% AUC Plotting
-def plot_auc(model_name, y_train, y_test, preds, intervals):
+# -----------------------------------------------------------
+# 2. Data Preparation
+# -----------------------------------------------------------
+def prepare_survival_data(metadata_df: pd.DataFrame, expression_df: pd.DataFrame, k_features: int = 55):
+    """
+    Prepare train/test datasets for survival analysis.
+    
+    Args:
+        metadata_df (pd.DataFrame): Clinical metadata with os_time, os_status.
+        expression_df (pd.DataFrame): Gene expression data.
+        k_features (int): Number of top features to select.
+        
+    Returns:
+        tuple: (X_train, X_test, y_train, y_test)
+    """
+    metadata_df["os_status"] = metadata_df["os_status"].map({'Death': True, 'Censored': False})
+    metadata_df["os_time"] = metadata_df["os_time"].astype(float)
+
+    y = np.array(list(zip(metadata_df["os_status"], metadata_df["os_time"])),
+                 dtype=[('event', '?'), ('time', '<f8')])
+    
+    clinical_df = metadata_df.drop(columns=['os_status', 'os_time'])
+
+    X_train_raw, X_test_raw, y_train, y_test = train_test_split(
+        expression_df, y, test_size=0.2, random_state=42, stratify=y['event']
+    )
+
+    bestk = SelectKBest(score_func=f_classif, k=k_features)
+    bestk.fit(X_train_raw, y_train)
+    selected_features = X_train_raw.columns[bestk.get_support()]
+
+    X_train = pd.DataFrame(bestk.transform(X_train_raw), columns=selected_features, index=X_train_raw.index)
+    X_test = pd.DataFrame(bestk.transform(X_test_raw), columns=selected_features, index=X_test_raw.index)
+
+    X_train = X_train.merge(clinical_df, left_index=True, right_index=True)
+    X_test = X_test.merge(clinical_df, left_index=True, right_index=True)
+
+    categorical_cols = X_train.select_dtypes(include=['object', 'category']).columns
+    numeric_cols = X_train.select_dtypes(include=['number']).columns
+
+    # Label Encoding
+    label_encoders = {}
+    for col in categorical_cols:
+        le = LabelEncoder()
+        mask_train = X_train[col].notnull()
+        X_train.loc[mask_train, col] = le.fit_transform(X_train.loc[mask_train, col].astype(str))
+        mask_test = X_test[col].notnull()
+        X_test.loc[mask_test, col] = le.transform(X_test.loc[mask_test, col].astype(str))
+        label_encoders[col] = le
+
+    # Scaling
+    scaler = StandardScaler()
+    X_train[numeric_cols] = scaler.fit_transform(X_train[numeric_cols])
+    X_test[numeric_cols] = scaler.transform(X_test[numeric_cols])
+
+    # Imputation
+    imputer = IterativeImputer()
+    X_train = pd.DataFrame(imputer.fit_transform(X_train), columns=X_train.columns, index=X_train.index)
+    X_test = pd.DataFrame(imputer.transform(X_test), columns=X_test.columns, index=X_test.index)
+
+    return X_train, X_test, y_train, y_test
+
+
+# -----------------------------------------------------------
+# 3. Model Training
+# -----------------------------------------------------------
+def c_index_scorer(estimator, X, y):
+    """Custom scorer for RandomizedSearchCV."""
+    surv_pred = estimator.predict(X)
+    return concordance_index_censored(y['event'], y['time'], surv_pred)[0]
+
+def train_model(X_train, y_train, model_type: str):
+    """
+    Train a survival model with hyperparameter tuning.
+    
+    Args:
+        X_train (pd.DataFrame): Training features.
+        y_train (np.ndarray): Survival target array.
+        model_type (str): 'RSF' or 'GBS'.
+        
+    Returns:
+        tuple: (best_model, best_params)
+    """
+    if model_type == 'RSF':
+        model = RandomSurvivalForest(random_state=42)
+        param_dist = {
+            "n_estimators": [50, 75, 100, 200, 300],
+            "max_depth": [2, 3, 5, 10, None],
+            "min_samples_split": [2, 3, 5, 7],
+            "min_samples_leaf": [2, 3, 5],
+            "max_features": ["sqrt", "log2"]
+        }
+    else:
+        model = GradientBoostingSurvivalAnalysis(random_state=42)
+        param_dist = {
+            "n_estimators": [50, 100, 200],
+            "max_depth": [3, 5, 10, None],
+            "min_samples_split": [2, 3, 5, 7],
+            "min_samples_leaf": [2, 3, 5],
+            "learning_rate": [0.01, 0.1]
+        }
+
+    search = RandomizedSearchCV(model, param_distributions=param_dist, cv=3,
+                                 scoring=c_index_scorer, random_state=42)
+    search.fit(X_train, y_train)
+    return search.best_estimator_, search.best_params_
+
+
+# -----------------------------------------------------------
+# 4. Plotting Functions
+# -----------------------------------------------------------
+def plot_auc(model_name, y_train, y_test, preds, intervals, output_dir):
+    """
+    Plot and save time-dependent AUC curve.
+    """
     auc, mean_auc = cumulative_dynamic_auc(y_train, y_test, preds, intervals)
     plt.figure()
     plt.plot(intervals, auc, marker="o", label=f"{model_name} (mean AUC = {mean_auc:.3f})")
     plt.axhline(mean_auc, linestyle="--", color='gray')
-    plt.xlabel("Days from enrollment")
+    plt.xlabel("Years from enrollment")
     plt.ylabel("Time-dependent AUC")
     plt.title(f"{model_name} - Time-dependent AUC")
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"{RESULTS_DIR}/{model_name}_auc_plot.png")
+    plt.savefig(os.path.join(output_dir, f"{model_name}_auc_plot.png"))
     plt.close()
-    return auc, mean_auc
+    return mean_auc
 
-# %% Final AUC Comparison Plot
-def compare_auc_plots(rsf_data, gbs_data, intervals):
-    rsf_auc, rsf_mean = rsf_data
-    gbs_auc, gbs_mean = gbs_data
-    plt.figure()
-    plt.plot(intervals, rsf_auc, "o-", label=f"RSF (mean AUC = {rsf_mean:.3f})")
-    plt.plot(intervals, gbs_auc, "o-", label=f"GBS (mean AUC = {gbs_mean:.3f})")
-    plt.xlabel("Days from enrollment")
-    plt.ylabel("Time-dependent AUC")
-    plt.legend(loc="lower center")
-    plt.grid(True)
-    plt.title("Model Comparison: RSF vs GBS")
-    plt.tight_layout()
-    plt.savefig(f"{RESULTS_DIR}/rsf_vs_gbs_auc_comparison.png")
-    plt.close()
-
-# %% Model Evaluation (C-index & Brier Score)
-def evaluate_models(rsf, gbs, X_test, y_test, y_train, intervals):
-    rsf_surv_prob = np.vstack([fn(intervals) for fn in rsf.predict_survival_function(X_test)])
-    gbs_surv_prob = np.vstack([fn(intervals) for fn in gbs.predict_survival_function(X_test)])
-
-    score_cindex = pd.Series(
-        [rsf.score(X_test, y_test), gbs.score(X_test, y_test), 0.5],
-        index=["RSF", "GBS", "Random"],
-        name="C-index",
-    )
-
-    score_brier = pd.Series(
-        [integrated_brier_score(y_train, y_test, prob, intervals)
-         for prob in (rsf_surv_prob, gbs_surv_prob)],
-        index=["RSF", "GBS"],
-        name="IBS",
-    )
-
-    result = pd.concat((score_cindex, score_brier), axis=1).round(3)
-    print(result)
-
-    result.to_csv(f"{RESULTS_DIR}/model_evaluation_scores.csv")
-    return result
-
-# %% Permutation Importance Plot
-def plot_permutation_importance(model, X_test, y_test, model_name):
-    result = permutation_importance(model, X_test, y_test, n_repeats=100, random_state=42)
-    sorted_idx = result.importances_mean.argsort()
+def plot_permutation_importance(model, X_test, y_test, model_name, output_dir, n_repeats=100):
+    """
+    Compute, show, and save permutation importance plot for the top 10 features
+    by absolute mean importance, using the original signed values for display.
+    """
+    result = permutation_importance(model, X_test, y_test, n_repeats=n_repeats, random_state=42)
     
-    fig, ax = plt.subplots(figsize=(10, len(sorted_idx) // 2))
-    ax.boxplot(result.importances[sorted_idx].T, vert=False, labels=X_test.columns[sorted_idx])
-    ax.set_title(f'Permutation Importance - {model_name}')
+    # Select top 10 by absolute importance
+    abs_importances = np.abs(result.importances_mean)
+    top10_idx = np.argsort(abs_importances)[-10:]
+    
+    # Sort top 10 by signed mean importance for plotting
+    top10_idx = top10_idx[np.argsort(result.importances_mean[top10_idx])]
+    
+    # Plot
+    fig, ax = plt.subplots()
+    ax.boxplot(result.importances[top10_idx].T,
+               vert=False,
+               labels=X_test.columns[top10_idx])
+    ax.set_title(f'Permutation Importance - Top 10 Absolute ({model_name})')
     fig.tight_layout()
-    plt.savefig(f"{RESULTS_DIR}/{model_name}_permutation_importance.png")
-    plt.close()
+    
+    # Show before saving
+    plt.show()
+    
+    # Save
+    save_path = os.path.join(output_dir, f"{model_name}_perm_importance.png")
+    fig.savefig(save_path)
+    plt.close(fig)
 
-    # Save raw importances
-    importance_df = pd.DataFrame({
-        "feature": X_test.columns[sorted_idx],
-        "importance_mean": result.importances_mean[sorted_idx],
-        "importance_std": result.importances_std[sorted_idx]
-    })
-    importance_df.to_csv(f"{RESULTS_DIR}/{model_name}_feature_importance.csv", index=False)
 
-# %% Main execution flow
+# -----------------------------------------------------------
+# 5. Main Pipeline
+# -----------------------------------------------------------
 def main():
-    # Load and prepare data
-    df = load_data('../data/cancer_metadata.csv', '../data/cancer_only_hvg.csv')
-    X, y = prepare_survival_target(df)
-    X_train, X_test, y_train, y_test = split_data(X, y)
+    # Paths
+    metadata_path = "../data/cancer_metadata.csv"
+    expression_path = "../data/cancer_hvg.csv"
+    output_dir = "../results/cancer_survival_hvg"
+    os.makedirs(output_dir, exist_ok=True)
 
-    # RSF model training
-    rsf_params = {
-        "n_estimators": [100, 200, 300, 500],
-        "max_depth": [3, 5, 10, None],
-        "min_samples_split": [2, 3, 5, 7],
-        "min_samples_leaf": [2, 3, 5],
-        "max_features": ["sqrt", "log2", None]
-    }
-    rsf_model = tune_model(RandomSurvivalForest, rsf_params, X_train, y_train, c_index_scorer, "RSF")
-    rsf_preds = rsf_model.predict(X_test)
+    # Load & prepare data
+    metadata_df, expression_df = load_and_filter_data(metadata_path, expression_path)
+    X_train, X_test, y_train, y_test = prepare_survival_data(metadata_df, expression_df)
 
-    # GBS model training
-    gbs_params = {
-        "n_estimators": [100, 200, 300, 500],
-        "max_depth": [3, 5, 10, None],
-        "min_samples_split": [2, 3, 5, 7],
-        "min_samples_leaf": [2, 3, 5],
-        "learning_rate": [0.01, 0.1]
-    }
-    gbs_model = tune_model(GradientBoostingSurvivalAnalysis, gbs_params, X_train, y_train, c_index_scorer, "GBS")
-    gbs_preds = gbs_model.predict(X_test)
+    # Train models
+    models = {}
+    for model_type in ['RSF', 'GBS']:
+        model, params = train_model(X_train, y_train, model_type)
+        models[model_type] = (model, params)
 
-    # AUC plotting
-    y_min, y_max = np.min(y['os_time']), np.max(y['os_time'])
-    intervals = np.arange(y_min, y_max, 100)
-    rsf_auc = plot_auc("RSF", y_train, y_test, rsf_preds, intervals)
-    gbs_auc = plot_auc("GBS", y_train, y_test, gbs_preds, intervals)
-    compare_auc_plots(rsf_auc, gbs_auc, intervals)
+    # Evaluate models
+    results = []
+    y_min, y_max = np.min(y_test['time']), np.max(y_test['time'])
+    intervals = np.arange(y_min + 100, y_max, 365)
 
-    # Model evaluation
-    evaluate_models(rsf_model, gbs_model, X_test, y_test, y_train, intervals)
+    for name, (model, _) in models.items():
+        preds = model.predict(X_test)
+        mean_auc = plot_auc(name, y_train, y_test, preds, intervals, output_dir)
 
-    # Permutation importance
-    plot_permutation_importance(rsf_model, X_test, y_test, "RSF")
-    plot_permutation_importance(gbs_model, X_test, y_test, "GBS")
+        surv_prob = np.vstack([fn(intervals) for fn in model.predict_survival_function(X_test)])
+        c_index = model.score(X_test, y_test)
+        ibs = integrated_brier_score(y_train, y_test, surv_prob, intervals)
 
-# Run the pipeline
+        results.append({"Model": name, "C-index": c_index, "IBS": ibs, "Mean AUC": mean_auc})
+        plot_permutation_importance(model, X_test, y_test, name, output_dir)
+
+    # Save results
+    results_df = pd.DataFrame(results)
+    results_df.to_csv(os.path.join(output_dir, "model_scores.csv"), index=False)
+    print(results_df)
+
+
 if __name__ == "__main__":
     main()
