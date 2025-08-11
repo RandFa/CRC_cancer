@@ -61,7 +61,7 @@ This repository contains solutions to **Task 1** of the test.
 4. **Survival analysis**  
 
 - Possible analysis plans and strategies are outlined in **notebook 1**.  
-- Considerations for data scaling and normalization are added where appropriate.
+- Considerations for scaling and pipeline building are added where appropriate.
 
 ### Scripts (in `scripts/`):
 
