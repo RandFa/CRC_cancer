@@ -18,7 +18,7 @@ from sksurv.metrics import concordance_index_censored, cumulative_dynamic_auc, i
 # -----------------------------------------------------------
 # 1. Data Loading and Filtering
 # -----------------------------------------------------------
-def load_and_filter_data(metadata_path: str, expression_path: str, min_time: int = 180):
+def load_and_filter_data(metadata_path: str, expression_path: str, min_time: int = 180, max_time = 4000):
     """
     Load and filter metadata, expression, and GSEA results.
     
@@ -32,7 +32,7 @@ def load_and_filter_data(metadata_path: str, expression_path: str, min_time: int
     """
     metadata_df = pd.read_csv(metadata_path, index_col=0)
     expression_df = pd.read_csv(expression_path, index_col=0)
-    metadata_df = metadata_df[metadata_df['os_time'] >= min_time]
+    metadata_df = metadata_df[(metadata_df['os_time'] >= min_time)&(metadata_df['os_time'] <= max_time)]
     expression_df = expression_df.loc[metadata_df.index]
 
     return metadata_df, expression_df
@@ -220,7 +220,7 @@ def run_pipeline(metadata_path="../data/cancer_metadata.csv",
     # Evaluate models
     results = []
     y_min, y_max = np.min(y_test['time']), np.max(y_test['time'])
-    intervals = np.arange(y_min+100, y_max, 365)
+    intervals = np.arange(y_min+90, y_max, 365)
 
     for name, (model, _) in models.items():
         preds = model.predict(X_test)

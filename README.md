@@ -8,11 +8,11 @@ This project focuses on exploratory data analysis and hypothesis-driven bioinfor
 
 ## 📂 Input Data
 
-- **Gene expression matrix** (bulk RNA-seq)
-- **Clinical metadata**
-- Batch effects already corrected using `pycombat-seq`
+- **Gene expression matrix** (bulk RNA-seq)  
+- **Clinical metadata**  
+- Batch effects already corrected using pycombat-seq  
 
-> Data are stored in an external drive and not included in this repo.
+> Data are stored on an external drive and **not included** in this repository.
 
 ---
 
@@ -23,7 +23,8 @@ This project focuses on exploratory data analysis and hypothesis-driven bioinfor
 ```bash
 git clone https://github.com/RandFa/epigene_test_CRC_cancer
 cd epigene_test_CRC_cancer
-``` 
+```
+
 ### 2. Create Conda Environment
 
 ```bash
@@ -31,12 +32,48 @@ conda env create -f environment.yml
 conda activate epigene_crc_env
 ```
 
-## Respratory structure:
+---
+
+## 🗂️ Repository Structure
+
+```
 project-root/
-├── data/           # Placeholder for local data
+├── data/           # Placeholder for local data (must include original datasets)
 ├── notebooks/      # EDA and analysis notebooks
-├── scripts/        # Modular scripts for reproducibility
+├── scripts/        # Modular scripts for reproducibility and utilities
 ├── results/        # Figures and summary tables
-├── environment.yml # Conda environment
+├── environment.yml # Conda environment specification
 ├── .gitignore
 └── README.md
+```
+
+---
+
+## 📝 Contents & Notes
+
+This repository contains solutions to **Task 1** of the test.
+
+### Notebooks (in `notebooks/`):
+
+1. **EDA of cancer vs healthy samples**  
+2. **Differential Expression (DE) and GSEA analysis of cancer vs healthy**  
+3. **Differential Expression analysis for cancer samples**  
+4. **Survival analysis**  
+
+- Possible analysis plans and strategies are outlined in **notebook 1**.  
+- Considerations for data scaling and normalization are added where appropriate.
+
+### Scripts (in `scripts/`):
+
+- Automated pipelines for parts of the analysis, including DE_GSEA and survival analysis.  
+- Custom plotting utilities used and tested inside the notebooks.
+
+### Results (in `results/`):
+
+- All figures and summary tables generated from the analysis are saved here.
+
+### Data Requirements:
+
+- The `data/` folder **must** contain the two original datasets from the external drive to enable the analysis.  
+- Additionally, the `hallmarks.gmt` file containing C6 GSEA hallmark genes should be placed in the data directory.
+
