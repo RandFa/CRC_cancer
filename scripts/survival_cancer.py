@@ -201,16 +201,15 @@ def plot_permutation_importance(model, X_test, y_test, model_name, output_dir, n
 # -----------------------------------------------------------
 # 5. Main Pipeline
 # -----------------------------------------------------------
-def main():
-    # Paths
-    metadata_path = "../data/cancer_metadata.csv"
-    expression_path = "../data/cancer_hvg.csv"
-    output_dir = "../results/cancer_survival_hvg"
+def run_pipeline(metadata_path="../data/cancer_metadata.csv", 
+         expression_path="../data/cancer_tmm_log.csv", 
+         output_dir="../results/cancer_survival",k_features = 50):
+
     os.makedirs(output_dir, exist_ok=True)
 
     # Load & prepare data
     metadata_df, expression_df = load_and_filter_data(metadata_path, expression_path)
-    X_train, X_test, y_train, y_test = prepare_survival_data(metadata_df, expression_df)
+    X_train, X_test, y_train, y_test = prepare_survival_data(metadata_df, expression_df,k_features)
 
     # Train models
     models = {}
@@ -221,7 +220,7 @@ def main():
     # Evaluate models
     results = []
     y_min, y_max = np.min(y_test['time']), np.max(y_test['time'])
-    intervals = np.arange(y_min + 100, y_max, 365)
+    intervals = np.arange(y_min+100, y_max, 365)
 
     for name, (model, _) in models.items():
         preds = model.predict(X_test)
@@ -239,6 +238,3 @@ def main():
     results_df.to_csv(os.path.join(output_dir, "model_scores.csv"), index=False)
     print(results_df)
 
-
-if __name__ == "__main__":
-    main()

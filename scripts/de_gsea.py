@@ -20,6 +20,9 @@ from pydeseq2.dds import DeseqDataSet
 from pydeseq2.ds import DeseqStats
 import gseapy as gp
 import plotting_utils as mplt
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
 
 # -------------------------
 # DESeq2 Analysis Functions
