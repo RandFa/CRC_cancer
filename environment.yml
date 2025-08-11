@@ -8,18 +8,19 @@ dependencies:
   - numpy=2.2
   - pandas
   - scipy
-  - scikit-learn
   - matplotlib
   - seaborn
   - umap-learn
-  - scanpy
   - python-igraph 
   - leidenalg
   - anndata
   - pycox
+  - ipykernel
   - pip
   - pip:
+      - scikit-learn
       - pydeseq2
       - gseapy
       - conorm
       - scikit-survival
+      - scanpy
