@@ -57,8 +57,8 @@ This repository contains solutions to **Task 1** of the test.
 
 1. **EDA of cancer vs healthy samples**  
 2. **Differential Expression (DE) and GSEA analysis of cancer vs healthy**  
-3. **Differential Expression analysis for cancer samples**  
-4. **Survival analysis**  
+3. **EDA, cleaning, feature selection and engineering, and differential expression analysis for cancer samples**  
+4. **Survival analysis for cancer samples**  
 
 - Possible analysis plans and strategies are outlined in **notebook 1**.  
 - Considerations for scaling and pipeline building are added where appropriate.
