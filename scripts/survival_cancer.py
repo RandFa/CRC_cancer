@@ -219,8 +219,8 @@ def run_pipeline(metadata_path="../data/cancer_metadata.csv",
 
     # Evaluate models
     results = []
-    y_min, y_max = np.min(y_test['time']), np.max(y_test['time'])
-    intervals = np.arange(y_min+90, y_max, 365)
+    y_min, y_max = np.min(y_test['time']+30), np.max(y_test['time'])
+    intervals = np.arange(y_min, y_max, 365)
 
     for name, (model, _) in models.items():
         preds = model.predict(X_test)
