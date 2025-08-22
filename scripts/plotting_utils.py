@@ -152,6 +152,7 @@ def plot_volcano(results: pd.DataFrame, output_path: str) -> None:
         None
     """
     results = results.copy()
+    results['padj'] = results['padj'].replace(0,  1e-323)
     results['neg_log10_padj'] = -np.log10(results['padj'])
     plt.figure(figsize=(10, 6))
     sns.scatterplot(
@@ -223,7 +224,8 @@ def plot_heatmap(results: pd.DataFrame,
     Returns:
         None
     """
-    top_genes = results.sort_values("padj").head(top_n).index
+    filtered_results = results[results['log2FoldChange'].abs() >= 1]
+    top_genes = filtered_results.sort_values("padj").head(top_n).index
     heatmap_data = scaled_expression[top_genes]
 
     if 'sample_type' in metadata_df.columns:

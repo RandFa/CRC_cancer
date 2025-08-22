@@ -39,6 +39,7 @@ def run_deseq2(count_df: pd.DataFrame, metadata_df: pd.DataFrame, design_factors
     Returns:
         DeseqDataSet: Fitted DESeq2 dataset object.
     """
+    count_df = count_df.loc[:, count_df.sum(axis=0) > 0]
     dds = DeseqDataSet(
         counts=count_df,
         metadata=metadata_df,
