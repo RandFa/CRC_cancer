@@ -1,4 +1,4 @@
-name: epigene_crc_env
+name: crc_env
 channels:
   - bioconda
   - conda-forge
