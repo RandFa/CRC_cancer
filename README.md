@@ -21,15 +21,15 @@ This project focuses on exploratory data analysis and hypothesis-driven bioinfor
 ### 1. Clone this Repository
 
 ```bash
-git clone https://github.com/RandFa/epigene_test_CRC_cancer
-cd epigene_test_CRC_cancer
+git clone https://github.com/RandFa/CRC_cancer
+cd CRC_cancer
 ```
 
 ### 2. Create Conda Environment
 
 ```bash
 conda env create -f environment.yml
-conda activate epigene_crc_env
+conda activate crc_env
 ```
 
 ---
