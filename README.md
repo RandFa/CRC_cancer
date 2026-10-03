@@ -51,7 +51,6 @@ project-root/
 
 ## 📝 Contents & Notes
 
-This repository contains solutions to **Task 1** of the test.
 
 ### Notebooks (in `notebooks/`):
 
